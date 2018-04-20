@@ -14,7 +14,7 @@
 
     <!-- Printing and PDF exports -->
     <script>
-        var link = document.createElement('link');
+        let link = document.createElement('link');
         link.rel = 'stylesheet';
         link.type = 'text/css';
         link.href = window.location.search.match(/print-pdf/gi) ? 'css/print/pdf.css' : 'css/print/paper.css';
@@ -50,12 +50,17 @@
                 <div>
                     <img data-src="images/tado_app.png" class="plain">
                 </div>
+                <aside data-markdown class="notes">
+                    Bought a new smart thermostat for the radiator in my apartment
+
+                    The app features nice graphs, web interface does not.
+                </aside>
             </section>
 
             <section data-markdown>
                 ### Why?
-                * Visualize my new smart thermostat
-                    * And other devices
+                * Visualize data from my new smart thermostat
+                    * And add other devices
                 * Build a proof of concept
                 * Learn something new
                 * Have fun
@@ -84,12 +89,12 @@
                 ### Play framework
                 * Lightweight and stateless web framework
                 * Asynchronous model built on Akka
-                * Useful libraries:
+                * Useful libraries for this project:
                     * `play-ws`
                     * `play-json`
             </section>
             <section data-markdown>
-                ### influxdb
+                ### InfluxDB
                 * Time series database
                 * Ingestion of millions of data points per second
                 * Real-time queries for large datasets
@@ -106,28 +111,54 @@
             <section>
                 <h3>Architecture</h3>
                 <img data-src="images/architecture.png" class="plain">
+
+                <aside class="notes" data-markdown>
+                    * Extend with new sensors
+                    * Specialized actor for each sensor
+                    * Think of checking the lights
+                    * Checking on the plants
+                        * Machine learning
+                        * Alerts to water your plants
+                </aside>
             </section>
+        </section>
+        <section data-markdown>
+            ### Three steps
+            - Get the data
+            - Store the data
+            - Visualize the data
         </section>
         <section>
             <section data-markdown>
                 ### Getting the data
-                * Inspect the API call using browser developers tools
-                * Replicate the request with Postman
+                * Inspect API call with Chrome developers tools
+                * Replicate the request with Curl or Postman
                 * Making the request with Scala code
+
+                Note:
+                At work also needed, sometimes docs are missing
+                You want to explore the data from the endpoint
             </section>
             <section>
                 <h3>Inspecting using Chrome</h3>
                 <img data-src="images/chrome.png" class="plain">
+                <aside class="notes" data-markdown>
+                    Look at headers, cookies, query parameters and url structure
+                </aside>
             </section>
             <section>
                 <h3>Making requests with Postman</h3>
                 <img data-src="images/postman.png" class="plain">
+                <aside class="notes" data-markdown>
+                    Use env variables to store sensitive data
+                    Share data across requests
+                </aside>
             </section>
             <section data-markdown>
                 ### Making requests with Scala
                 ```scala
                 val response: Future[WSResponse] =
-                    ws.url(s"https://my.tado.com/api/v2/$path")
+                    ws.url(s"$baseUrl/$path")
                         .addHttpHeaders(headers.toSeq: _*)
                         .get
                 ```
@@ -135,7 +166,7 @@
             <section data-markdown>
                 ### Processing the request
                 ```scala
-                ws.url(s"https://my.tado.com/api/v2/$path")
+                ws.url(s"$baseUrl/$path")
                     .addHttpHeaders(headers.toSeq: _*)
                     .get
                     .map { response =>
@@ -155,20 +186,21 @@
 
                 case class Measurement(temp: Double, humidity: Double)
 
-                implicit val measurementReads = (
+                implicit val measurementReads: Reads[Measurement] = (
                     (__ \ "temp").read[Double] and
                     (__ \ "humidity").read[Double] and
                 )(Measurement)
                 ```
             </section>
             <section data-markdown>
-                ### Mapping to Scala code
+                ### Automated mapping
                 ```scala
                 import play.api.libs.json._
 
                 case class Measurement(temp: Double, humidity: Double)
 
-                implicit val measurementReads = Json.reads[Measurement]
+                implicit val measurementReads: Reads[Measurement] =
+                    Json.reads[Measurement]
                 ```
             </section>
             <section data-markdown>
@@ -183,11 +215,9 @@
                 object PascalCase extends JsonNaming {
                 override val toString = "PascalCase"
                     def apply(prop: String): String = {
-                        if (prop.length > 0) {
-                            prop.updated(0, Character.toUpperCase(property charAt 0))
-                        } else {
-                            prop
-                        }
+                        if (prop.length > 0)
+                            prop.updated(0, prop.head.toUpper)
+                        else prop
                     }
                 }
                 ```
@@ -196,7 +226,7 @@
                 ### Processing the response
 
                 ```scala
-                ws.url(s"https://my.tado.com/api/v2/$path")
+                ws.url(s"$baseUrl/$path")
                 .addHttpHeaders(headers.toSeq: _*)
                 .get
                 .map { response =>
@@ -206,6 +236,11 @@
                     }
                 }
                 ```
+
+                Note:
+                Instead of the raw response body
+                You can also use `asOpt` or `validate`
+                To do data validation
             </section>
             <section data-markdown>
                 ### Results so far
@@ -217,10 +252,10 @@
             <section data-markdown>
                 ### Scheduling
                 * We need some periodic polling of the sensors
-                * Something like cron
+                * Something like `cron`
                 * Akka has a scheduler
                 * Not for long-term scheduling
-                    * `akka-quartz-scheduler`
+                    * Use `akka-quartz-scheduler`
             </section>
             <section data-markdown>
                 ### Sceduling messages with Akka
@@ -257,6 +292,9 @@
                     }
                 }
                 ```
+                Note:
+                New in Akka 2.5
+                Send messages to the actor itself
             </section>
             <section data-markdown>
                 ### Akka Timers advantages
@@ -270,17 +308,22 @@
                 ### Storing measurements
 
                 * Create an actor that accepts a measurement
-                * And stores the received measurement in InfluxDB
+                * And store the received measurement in InfluxDB
 
                 * Use `play-ws` to use the HTTP API
                 * Reuse existing library for connecting to InfluxDB
+
+                Note:
+                Reuse is nice, a lot of libraries exist to help you
+                Didn't feel like writing it myself
+                Did solve a bug in the library, so that way you also help
             </section>
             <section data-markdown>
                 ### Storing measurements
 
                 ```scala
                 class StorageActor extends Actor {
-                    private val db = ???
+                    private val db = new InfluxDB(???)
 
                     override def receive: Receive = {
                       case Store(m) =>
@@ -305,6 +348,12 @@
             </section>
             <section>
                 <img data-src="images/dashboard.png" class="plain">
+
+                <aside class="notes" data-markdown>
+                    Show grafana dashboard either live or local
+                    [http://192.168.10.136:3000/](http://192.168.10.136:3000/)
+                    [http://localhost:3000/](http://localhost:300)
+                </aside>
             </section>
         </section>
 
@@ -312,9 +361,11 @@
             <section data-markdown>
                 ### Improvements
                 * Akka supervision
-                * Akka streams
                 * Kafka broker for raw data
                 * Automated deployments with Docker containers
+
+                Note:
+                execution context: chose a different from the default one also used by your actor system and play framework
             </section>
             <section data-markdown>
                 ### Conclusions
@@ -323,6 +374,12 @@
                 * Easy steps to make this a fully scalable production ready solution
 
                 * And had a lot of fun
+            </section>
+            <section data-markdown>
+                ### Code
+
+                Source code and presentation can be found on my Github
+                [https://github.com/wjglerum/iot-collector](https://github.com/wjglerum)
             </section>
         </section>
     </div>
